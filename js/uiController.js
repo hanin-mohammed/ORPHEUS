@@ -1,0 +1,506 @@
+class UIController {
+    constructor(app) {
+        this.app = app;
+        this.engine = app.engine;
+        this.visualizer = app.visualizer;
+        this.calculator = app.calculator;
+
+        // Footer status elements
+        this.elFooterSysState = document.getElementById('footer-sys-state');
+        this.elFooterSampleRate = document.getElementById('footer-sample-rate');
+        this.elFooterOscCount = document.getElementById('footer-osc-count');
+
+        // Engine control elements
+        this.elEngineLed = document.getElementById('engine-led');
+
+        this.elHelpModal = document.getElementById('help-modal');
+
+        // Vertical slider value displays
+        this.elMasterVolVal = document.getElementById('master-vol-val');
+        this.elMasterReverbVal = document.getElementById('master-reverb-val');
+
+        // KEY 0 elements
+        this.elFreqSlider0 = document.getElementById('freq-slider-0');
+        this.elFreqDisplay0 = document.getElementById('freq-display-0');
+        this.elWave0 = document.getElementById('wave-0');
+        this.elVol0 = document.getElementById('vol-0');
+        this.elKeySlot0 = document.getElementById('key-slot-0');
+
+        this.keysDown = new Set();
+        this.isRunning = false;
+        this.micActive = false;
+
+        this.bindEvents();
+        this.startUpdateLoop();
+    }
+
+    setEngineState(state) {
+        // state: 'offline', 'running', 'standby', 'estop'
+        this.elEngineLed.classList.remove('active', 'estop');
+        this.elFooterSysState.classList.remove('running');
+
+        switch (state) {
+            case 'running':
+                this.elEngineLed.classList.add('active');
+                this.elFooterSysState.innerText = 'RUNNING';
+                this.elFooterSysState.classList.add('running');
+                break;
+            case 'standby':
+                this.elFooterSysState.innerText = 'STANDBY';
+                break;
+            case 'estop':
+                this.elEngineLed.classList.add('estop');
+                this.elFooterSysState.innerText = 'OFFLINE (ESTOP)';
+                break;
+            default:
+                this.elFooterSysState.innerText = 'OFFLINE';
+        }
+    }
+
+    bindEvents() {
+        // Mic Controls
+        document.getElementById('btn-mic-enable').addEventListener('click', async (e) => {
+            const btn = document.getElementById('btn-mic-enable');
+            if (this.micActive) {
+                this.engine.disableMic();
+                this.micActive = false;
+                btn.innerText = 'ENABLE MIC INPUT';
+                btn.classList.add('warning');
+                btn.classList.remove('active');
+                this.elFooterSampleRate.innerText = '---';
+            } else {
+                const deviceId = document.getElementById('mic-device').value || null;
+                const success = await this.engine.enableMic(deviceId);
+                if (success) {
+                    this.micActive = true;
+                    btn.innerText = 'DISABLE MIC INPUT';
+                    btn.classList.remove('warning');
+                    btn.classList.add('active');
+                    this.elFooterSampleRate.innerText = this.engine.ctx.sampleRate + " Hz";
+                    await this.populateMicDevices();
+                }
+            }
+        });
+
+        document.getElementById('mic-device').addEventListener('change', async (e) => {
+            if (this.engine.micSource) {
+                await this.engine.enableMic(e.target.value);
+            }
+        });
+
+        document.getElementById('btn-mic-record').addEventListener('click', (e) => {
+            this.visualizer.isRecordingPeaks = !this.visualizer.isRecordingPeaks;
+            e.target.innerText = this.visualizer.isRecordingPeaks ? 'STOP' : 'RECORD';
+            e.target.classList.toggle('active', this.visualizer.isRecordingPeaks);
+
+            if (!this.visualizer.isRecordingPeaks && this.visualizer.recordedFftData) {
+                const peaks = this.visualizer.getTopPeaks(this.visualizer.recordedFftData, 3);
+                this.displayTopPeaks(peaks);
+            } else {
+                this.hideTopPeaks();
+            }
+        });
+
+        document.getElementById('btn-mic-clear').addEventListener('click', (e) => {
+            this.visualizer.recordedFftData = null;
+            this.hideTopPeaks();
+        });
+
+        document.getElementById('btn-assign-peaks').addEventListener('click', () => {
+            if (this.visualizer.recordedFftData) {
+                const peaks = this.visualizer.getTopPeaks(this.visualizer.recordedFftData, 3);
+                if (!peaks || peaks.length === 0) return;
+                const sampleRate = this.engine.ctx.sampleRate;
+                const fftSize = this.engine.micAnalyser.fftSize;
+
+                for (let i = 0; i < Math.min(3, peaks.length); i++) {
+                    const freq = peaks[i].index * (sampleRate / fftSize);
+                    const input = document.getElementById(`freq-${i + 1}`);
+                    if (input) {
+                        input.value = freq.toFixed(1);
+                        input.dispatchEvent(new Event('input'));
+                    }
+                }
+            }
+        });
+
+        document.getElementById('mic-gain').addEventListener('input', (e) => {
+            this.engine.setMicGain(parseFloat(e.target.value));
+        });
+
+        document.getElementById('mic-fft-size').addEventListener('change', (e) => {
+            this.engine.setMicFftSize(e.target.value);
+        });
+
+        // Threshold Controls
+        document.getElementById('mic-thresh').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            this.engine.micThreshold = val;
+            document.getElementById('mic-thresh-val').innerText = val + ' dB';
+        });
+
+        document.getElementById('mic-thresh-enable').addEventListener('change', (e) => {
+            this.engine.micThresholdEnabled = e.target.checked;
+        });
+
+        // Master Controls with value display
+        document.getElementById('master-vol').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            this.engine.setMasterVolume(val);
+            this.elMasterVolVal.innerText = Math.round(val * 100) + '%';
+        });
+        document.getElementById('master-reverb').addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            this.engine.setReverbMix(val);
+            this.elMasterReverbVal.innerText = Math.round(val * 100) + '%';
+        });
+
+        // Generator Controls (1-6)
+        for (let i = 1; i <= 6; i++) {
+            const freqInput = document.getElementById(`freq-${i}`);
+            const waveSelect = document.getElementById(`wave-${i}`);
+            const volInput = document.getElementById(`vol-${i}`);
+
+            const updateParams = () => {
+                if (this.keysDown.has(i.toString())) {
+                    this.engine.updateTone(
+                        i.toString(), 
+                        parseFloat(freqInput.value), 
+                        waveSelect.value, 
+                        parseFloat(volInput.value)
+                    );
+                }
+            };
+
+            freqInput.addEventListener('input', updateParams);
+            waveSelect.addEventListener('change', updateParams);
+            volInput.addEventListener('input', updateParams);
+        }
+
+        // KEY 0 - Variable frequency slider
+        this.elFreqSlider0.addEventListener('input', () => {
+            const freq = parseFloat(this.elFreqSlider0.value);
+            this.elFreqDisplay0.innerText = freq.toFixed(1) + ' Hz';
+            if (this.keysDown.has('0')) {
+                this.engine.updateTone('0', freq, this.elWave0.value, parseFloat(this.elVol0.value));
+            }
+        });
+
+        this.elWave0.addEventListener('change', () => {
+            if (this.keysDown.has('0')) {
+                this.engine.updateTone('0', parseFloat(this.elFreqSlider0.value), this.elWave0.value, parseFloat(this.elVol0.value));
+            }
+        });
+
+        this.elVol0.addEventListener('input', () => {
+            if (this.keysDown.has('0')) {
+                this.engine.updateTone('0', parseFloat(this.elFreqSlider0.value), this.elWave0.value, parseFloat(this.elVol0.value));
+            }
+        });
+
+        // Key 0 Max Toggle
+        const maxToggleBtn = document.getElementById('freq-slider-0-max-toggle');
+        if (maxToggleBtn) {
+            maxToggleBtn.addEventListener('click', () => {
+                if (this.elFreqSlider0.max === "2000") {
+                    this.elFreqSlider0.max = "5000";
+                    maxToggleBtn.innerText = "5 kHz";
+                    maxToggleBtn.classList.add('active');
+                } else {
+                    this.elFreqSlider0.max = "2000";
+                    maxToggleBtn.innerText = "2 kHz";
+                    maxToggleBtn.classList.remove('active');
+                    if (parseFloat(this.elFreqSlider0.value) > 2000) {
+                        this.elFreqSlider0.value = 2000;
+                        this.elFreqSlider0.dispatchEvent(new Event('input'));
+                    }
+                }
+            });
+        }
+
+        // Calculator Controls
+        const calcMode = document.getElementById('calc-mode');
+        const customMultGroup = document.getElementById('custom-mult-group');
+        calcMode.addEventListener('change', (e) => {
+            customMultGroup.style.display = e.target.value === 'custom' ? 'block' : 'none';
+        });
+
+        document.getElementById('btn-calc').addEventListener('click', () => {
+            const baseFreq = parseFloat(document.getElementById('base-freq').value);
+            const mode = calcMode.value;
+            const mult = parseFloat(document.getElementById('custom-mult').value);
+            const results = this.calculator.calculate(baseFreq, mode, mult, 6);
+            this.renderFreqResults(results);
+        });
+
+        document.getElementById('btn-auto-assign').addEventListener('click', () => {
+            const baseFreq = parseFloat(document.getElementById('base-freq').value);
+            const mode = calcMode.value;
+            const mult = parseFloat(document.getElementById('custom-mult').value);
+            const results = this.calculator.calculate(baseFreq, mode, mult, 6);
+            
+            for (let i = 0; i < 6; i++) {
+                if (results[i]) {
+                    const input = document.getElementById(`freq-${i + 1}`);
+                    input.value = results[i];
+                    input.dispatchEvent(new Event('input'));
+                }
+            }
+            this.renderFreqResults(results);
+        });
+
+        // Experiment Controls
+        document.getElementById('btn-start').addEventListener('click', () => {
+            if (this.engine.ctx.state === 'suspended') this.engine.ctx.resume();
+            this.isRunning = true;
+            this.setEngineState('running');
+        });
+        document.getElementById('btn-stop').addEventListener('click', () => {
+            this.isRunning = false;
+            this.engine.stopAllTones();
+            this.keysDown.clear();
+            this.updateKeyUI();
+            this.setEngineState('standby');
+        });
+        document.getElementById('btn-mute-all').addEventListener('click', () => {
+            this.engine.stopAllTones();
+            this.keysDown.clear();
+            this.updateKeyUI();
+        });
+        document.getElementById('btn-estop').addEventListener('click', () => {
+            this.isRunning = false;
+            this.engine.stopAllTones();
+            this.engine.ctx.suspend();
+            this.keysDown.clear();
+            this.updateKeyUI();
+            this.setEngineState('estop');
+        });
+
+        // Keyboard Shortcuts
+        window.addEventListener('keydown', (e) => {
+            if (e.repeat) return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+            const key = e.key.toLowerCase();
+            
+            if (key === 'h') {
+                this.elHelpModal.style.display = this.elHelpModal.style.display === 'block' ? 'none' : 'block';
+            }
+            if (key === 'm') {
+                document.getElementById('btn-mic-enable').click();
+            }
+            if (key === 'v') {
+                document.getElementById('btn-mic-record').click();
+            }
+            if (key === ' ') {
+                e.preventDefault();
+                document.getElementById('btn-mute-all').click();
+            }
+            if (key === 'escape') {
+                document.getElementById('btn-estop').click();
+            }
+
+            // Keys 1-6
+            if (['1', '2', '3', '4', '5', '6'].includes(key) && this.isRunning) {
+                this.keysDown.add(key);
+                const freq = parseFloat(document.getElementById(`freq-${key}`).value);
+                const type = document.getElementById(`wave-${key}`).value;
+                const vol = parseFloat(document.getElementById(`vol-${key}`).value);
+                this.engine.playTone(key, freq, type, vol);
+                this.updateKeyUI();
+            }
+
+            // Key 0
+            if (key === '0' && this.isRunning) {
+                this.keysDown.add('0');
+                const freq = parseFloat(this.elFreqSlider0.value);
+                const type = this.elWave0.value;
+                const vol = parseFloat(this.elVol0.value);
+                this.engine.playTone('0', freq, type, vol);
+                this.updateKeyUI();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            const key = e.key.toLowerCase();
+            if (['1', '2', '3', '4', '5', '6'].includes(key)) {
+                this.keysDown.delete(key);
+                this.engine.stopTone(key);
+                this.updateKeyUI();
+            }
+            if (key === '0') {
+                this.keysDown.delete('0');
+                this.engine.stopTone('0');
+                this.updateKeyUI();
+            }
+        });
+
+        // Theme Color Picker
+        document.getElementById('theme-color').addEventListener('input', (e) => {
+            const newColor = e.target.value;
+            document.documentElement.style.setProperty('--text-amber', newColor);
+            document.documentElement.style.setProperty('--text-active', newColor);
+            
+            // Update visualizer colors
+            this.visualizer.colorAmber = newColor;
+            this.visualizer.colorOrange = newColor;
+        });
+
+        // Crosshair
+        document.addEventListener('mousemove', (e) => {
+            const crosshair = document.getElementById('crosshair');
+            if (e.target.tagName === 'CANVAS') {
+                crosshair.style.display = 'block';
+                crosshair.style.left = e.clientX + 'px';
+                crosshair.style.top = e.clientY + 'px';
+            } else {
+                crosshair.style.display = 'none';
+            }
+        });
+    }
+
+    async populateMicDevices() {
+        const select = document.getElementById('mic-device');
+        const currentVal = select.value;
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter(d => d.kind === 'audioinput');
+        
+        if (audioInputs.length > 0) {
+            select.innerHTML = '';
+            audioInputs.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.deviceId;
+                option.text = device.label || `Microphone ${select.length + 1}`;
+                select.appendChild(option);
+            });
+            
+            if (currentVal && Array.from(select.options).some(opt => opt.value === currentVal)) {
+                select.value = currentVal;
+            } else if (this.engine.micStream) {
+                const activeTrack = this.engine.micStream.getAudioTracks()[0];
+                if (activeTrack) {
+                    const activeSettings = activeTrack.getSettings();
+                    if (activeSettings.deviceId) {
+                        select.value = activeSettings.deviceId;
+                    }
+                }
+            }
+        }
+    }
+
+    renderFreqResults(results) {
+        const container = document.getElementById('freq-results');
+        container.innerHTML = '';
+        results.forEach((freq, index) => {
+            const item = document.createElement('div');
+            item.className = 'freq-item';
+            
+            const span = document.createElement('span');
+            span.innerText = `${freq} Hz`;
+
+            const assignGroup = document.createElement('div');
+            assignGroup.className = 'assign-buttons';
+            
+            for (let i = 1; i <= 6; i++) {
+                const btn = document.createElement('button');
+                btn.innerText = `${i}`;
+                btn.title = `Assign to Key ${i}`;
+                btn.onclick = () => {
+                    document.getElementById(`freq-${i}`).value = freq;
+                };
+                assignGroup.appendChild(btn);
+            }
+
+            item.appendChild(span);
+            item.appendChild(assignGroup);
+            container.appendChild(item);
+        });
+    }
+
+    displayTopPeaks(peaks) {
+        if (peaks && peaks.length > 0) {
+            const sampleRate = this.engine.ctx.sampleRate;
+            const fftSize = this.engine.micAnalyser.fftSize;
+            
+            for (let i = 0; i < 3; i++) {
+                const dot = document.getElementById(`peak-dot-${i + 1}`);
+                const val = document.getElementById(`peak-val-${i + 1}`);
+                
+                if (i < peaks.length) {
+                    const peak = peaks[i];
+                    const freq = peak.index * (sampleRate / fftSize);
+                    const color = this.visualizer.peakColors[i % this.visualizer.peakColors.length];
+                    
+                    if (dot) dot.style.backgroundColor = color;
+                    if (val) {
+                        val.innerText = `${freq.toFixed(1)} Hz`;
+                        val.style.color = color;
+                    }
+                } else {
+                    if (val) {
+                        val.innerText = '\u00A0';
+                        val.style.color = 'transparent';
+                    }
+                }
+            }
+            
+            const btnAssign = document.getElementById('btn-assign-peaks');
+            if (btnAssign) {
+                btnAssign.style.opacity = '1';
+                btnAssign.style.pointerEvents = 'auto';
+            }
+        } else {
+            this.hideTopPeaks();
+        }
+    }
+
+    hideTopPeaks() {
+        for (let i = 1; i <= 3; i++) {
+            const val = document.getElementById(`peak-val-${i}`);
+            if (val) {
+                val.innerText = '\u00A0';
+                val.style.color = 'transparent';
+            }
+        }
+        
+        const btnAssign = document.getElementById('btn-assign-peaks');
+        if (btnAssign) {
+            btnAssign.style.opacity = '0.3';
+            btnAssign.style.pointerEvents = 'none';
+        }
+    }
+
+    updateKeyUI() {
+        for (let i = 1; i <= 6; i++) {
+            const slot = document.getElementById(`key-slot-${i}`);
+            if (this.keysDown.has(i.toString())) {
+                slot.classList.add('active');
+            } else {
+                slot.classList.remove('active');
+            }
+        }
+        if (this.keysDown.has('0')) {
+            this.elKeySlot0.classList.add('active');
+        } else {
+            this.elKeySlot0.classList.remove('active');
+        }
+        this.elFooterOscCount.innerText = this.engine.activeOscillators.size;
+    }
+
+    startUpdateLoop() {
+        const loop = (time) => {
+            // Mic Readouts Update
+            if (this.engine.micSource) {
+                const data = this.engine.getMicData();
+                document.getElementById('mic-readout-freq').innerText = data.peakFreq.toFixed(1) + ' Hz';
+                document.getElementById('mic-readout-note').innerText = this.engine.freqToNoteString(data.peakFreq);
+            } else {
+                document.getElementById('mic-readout-freq').innerText = '0 Hz';
+                document.getElementById('mic-readout-note').innerText = '--';
+            }
+
+            requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
+    }
+}

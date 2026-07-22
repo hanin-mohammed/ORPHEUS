@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>O.R.P.H.E.U.S.</title>
+    <link rel="stylesheet" href="css/style.css?v=2">
+</head>
+<body>
+    <div class="vignette"></div>
+    <div class="scanlines"></div>
+    <div class="crosshair" id="crosshair"></div>
+
+    <div class="app-container">
+        <!-- Header -->
+        <header class="top-bar">
+            <div class="title-group">
+                <div class="title">O.R.P.H.E.U.S.</div>
+                <div class="subtitle">Oscillation Resonance Processing for Harmonic Evaluation and Unified Simulation</div>
+            </div>
+            <div class="settings-group" style="position: absolute; right: 16px; display: flex; align-items: center;">
+                <label for="theme-color" style="cursor: pointer; font-size: 16px; margin: 0; padding: 4px;" title="Change Theme Color">⚙</label>
+                <input type="color" id="theme-color" value="#ffb000" style="opacity:0; width:0; height:0; position:absolute; right:0;">
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <main class="main-content">
+            <!-- Left Column: Live Mic Analyzer -->
+            <section class="panel col-left">
+                <div class="panel-header">LIVE MICROPHONE ANALYZER</div>
+                <div class="panel-content">
+                    <div class="control-row">
+                        <button id="btn-mic-enable" class="warning">ENABLE MIC INPUT</button>
+                        <div class="button-group">
+                            <button id="btn-mic-record">RECORD</button>
+                            <button id="btn-mic-clear">CLEAR</button>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <label>Input Device</label>
+                        <select id="mic-device">
+                            <option value="">Default (Click Enable First)</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group">
+                        <label>Input Gain</label>
+                        <input type="range" id="mic-gain" min="0" max="2" step="0.01" value="1">
+                    </div>
+
+                    <div class="control-group">
+                        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 8px;">
+                            <label style="display: flex; align-items: center; gap: 6px; margin: 0;">
+                                <input type="checkbox" id="mic-thresh-enable" checked> Resonance Sensitivity
+                            </label>
+                            <span id="mic-thresh-val" style="font-size: 10px; color: var(--text-muted);">-70 dB</span>
+                        </div>
+                        <input type="range" id="mic-thresh" min="-100" max="-20" step="1" value="-70" style="margin-bottom: 4px;">
+                        <div style="display: flex; justify-content: space-between; font-size: 8px; color: var(--text-muted); padding: 0 2px;">
+                            <span>-100</span>
+                            <span>-60</span>
+                            <span>-20</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <label>FFT Size</label>
+                        <select id="mic-fft-size">
+                            <option value="1024">1024</option>
+                            <option value="2048">2048</option>
+                            <option value="4096" selected>4096</option>
+                            <option value="8192">8192</option>
+                        </select>
+                    </div>
+
+                    <div class="canvas-container large">
+                        <div class="canvas-overlay">LIVE FFT SPECTRUM</div>
+                        <canvas id="canvas-mic-fft"></canvas>
+                        <div class="canvas-tooltip" id="tooltip-fft"></div>
+                    </div>
+                    
+                    <div class="canvas-container flex-fill">
+                        <div class="canvas-overlay">LIVE OSCILLOSCOPE</div>
+                        <canvas id="canvas-mic-osc"></canvas>
+                        <div class="canvas-tooltip" id="tooltip-osc"></div>
+                    </div>
+
+                    <div class="readout-grid">
+                        <div class="readout-box">
+                            <label>Peak Freq</label>
+                            <div class="val" id="mic-readout-freq">0 Hz</div>
+                        </div>
+                        <div class="readout-box">
+                            <label>Note</label>
+                            <div class="val" id="mic-readout-note">--</div>
+                        </div>
+                    </div>
+                    <div id="top-peaks-display" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 6px; flex-shrink: 0;">
+                        <div class="readout-box" style="align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <div id="peak-dot-1" style="width: 8px; height: 8px; border-radius: 50%; background-color: #ff3366;"></div>
+                                <label>Rank 1</label>
+                            </div>
+                            <div class="val" id="peak-val-1" style="font-size: 12px; color: transparent;">&nbsp;</div>
+                        </div>
+                        <div class="readout-box" style="align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <div id="peak-dot-2" style="width: 8px; height: 8px; border-radius: 50%; background-color: #33ccff;"></div>
+                                <label>Rank 2</label>
+                            </div>
+                            <div class="val" id="peak-val-2" style="font-size: 12px; color: transparent;">&nbsp;</div>
+                        </div>
+                        <div class="readout-box" style="align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <div id="peak-dot-3" style="width: 8px; height: 8px; border-radius: 50%; background-color: #33ff99;"></div>
+                                <label>Rank 3</label>
+                            </div>
+                            <div class="val" id="peak-val-3" style="font-size: 12px; color: transparent;">&nbsp;</div>
+                        </div>
+                    </div>
+
+                    <div class="control-row" style="margin-top: 6px;">
+                        <button id="btn-assign-peaks" style="flex: 1; opacity: 0.3; pointer-events: none;">ASSIGN PEAKS TO KEYS 1-3</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Center Column: Multi Tone Generator -->
+            <section class="panel col-center">
+                <div class="panel-header">MULTI TONE GENERATOR</div>
+                <div class="panel-content">
+                    <div class="keys-grid">
+                        <div class="key-slot" id="key-slot-1">
+                            <div class="key-header"><span>KEY [ 1 ]</span></div>
+                            <input type="number" id="freq-1" value="110" step="0.1">
+                            <select id="wave-1">
+                                <option value="sine">SINE</option>
+                                <option value="triangle">TRI</option>
+                                <option value="square">SQR</option>
+                                <option value="sawtooth">SAW</option>
+                            </select>
+                            <input type="range" id="vol-1" min="0" max="1" step="0.01" value="0.5">
+                        </div>
+                        <div class="key-slot" id="key-slot-2">
+                            <div class="key-header"><span>KEY [ 2 ]</span></div>
+                            <input type="number" id="freq-2" value="220" step="0.1">
+                            <select id="wave-2">
+                                <option value="sine">SINE</option>
+                                <option value="triangle">TRI</option>
+                                <option value="square">SQR</option>
+                                <option value="sawtooth">SAW</option>
+                            </select>
+                            <input type="range" id="vol-2" min="0" max="1" step="0.01" value="0.5">
+                        </div>
+                        <div class="key-slot" id="key-slot-3">
+                            <div class="key-header"><span>KEY [ 3 ]</span></div>
+                            <input type="number" id="freq-3" value="330" step="0.1">
+                            <select id="wave-3">
+                                <option value="sine">SINE</option>
+                                <option value="triangle">TRI</option>
+                                <option value="square">SQR</option>
+                                <option value="sawtooth">SAW</option>
+                            </select>
+                            <input type="range" id="vol-3" min="0" max="1" step="0.01" value="0.5">
+                        </div>
+                        <div class="key-slot" id="key-slot-4">
+                            <div class="key-header"><span>KEY [ 4 ]</span></div>
+                            <input type="number" id="freq-4" value="440" step="0.1">
+                            <select id="wave-4">
+                                <option value="sine">SINE</option>
+                                <option value="triangle">TRI</option>
+                                <option value="square">SQR</option>
+                                <option value="sawtooth">SAW</option>
+                            </select>
+                            <input type="range" id="vol-4" min="0" max="1" step="0.01" value="0.5">
+                        </div>
+                        <div class="key-slot" id="key-slot-5">
+                            <div class="key-header"><span>KEY [ 5 ]</span></div>
+                            <input type="number" id="freq-5" value="550" step="0.1">
+                            <select id="wave-5">
+                                <option value="sine">SINE</option>
+                                <option value="triangle">TRI</option>
+                                <option value="square">SQR</option>
+                                <option value="sawtooth">SAW</option>
+                            </select>
+                            <input type="range" id="vol-5" min="0" max="1" step="0.01" value="0.5">
+                        </div>
+                        <div class="key-slot" id="key-slot-6">
+                            <div class="key-header"><span>KEY [ 6 ]</span></div>
+                            <input type="number" id="freq-6" value="660" step="0.1">
+                            <select id="wave-6">
+                                <option value="sine">SINE</option>
+                                <option value="triangle">TRI</option>
+                                <option value="square">SQR</option>
+                                <option value="sawtooth">SAW</option>
+                            </select>
+                            <input type="range" id="vol-6" min="0" max="1" step="0.01" value="0.5">
+                        </div>
+                    </div>
+
+                    <!-- KEY 0: Variable Frequency Slider Tone -->
+                    <div class="key-slot-zero" id="key-slot-0">
+                        <div class="key-zero-top">
+                            <div class="key-header"><span>KEY [ 0 ]  VARIABLE TONE</span></div>
+                            <div class="key-zero-controls">
+                                <select id="wave-0">
+                                    <option value="sine">SINE</option>
+                                    <option value="triangle">TRI</option>
+                                    <option value="square">SQR</option>
+                                    <option value="sawtooth">SAW</option>
+                                </select>
+                                <input type="range" id="vol-0" min="0" max="1" step="0.01" value="0.5" style="width: 80px;">
+                            </div>
+                        </div>
+                        <div class="key-zero-slider-row">
+                            <span style="font-size:10px; color:var(--text-muted); white-space:nowrap;">1 Hz</span>
+                            <input type="range" id="freq-slider-0" min="1" max="2000" step="0.1" value="440">
+                            <button id="freq-slider-0-max-toggle" style="font-size:9px; padding: 2px 4px; min-width: 40px; border-radius: 2px;" title="Toggle Max Range">2 kHz</button>
+                            <div class="freq-display" id="freq-display-0">440.0 Hz</div>
+                        </div>
+                    </div>
+
+                    <!-- Output Waveform + Vertical Sliders -->
+                    <div class="output-row">
+                        <div class="canvas-container">
+                            <div class="canvas-overlay">OUTPUT WAVEFORM</div>
+                            <canvas id="canvas-out-osc"></canvas>
+                        </div>
+                        <div class="vertical-sliders-panel">
+                            <div class="vertical-slider-group">
+                                <div class="v-label">MASTER</div>
+                                <div class="v-slider-wrap">
+                                    <input type="range" id="master-vol" min="0" max="1" step="0.01" value="0.8">
+                                </div>
+                                <div class="v-val" id="master-vol-val">80%</div>
+                            </div>
+                            <div class="vertical-slider-group">
+                                <div class="v-label">REVERB</div>
+                                <div class="v-slider-wrap">
+                                    <input type="range" id="master-reverb" min="0" max="1" step="0.01" value="0.1">
+                                </div>
+                                <div class="v-val" id="master-reverb-val">10%</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Column: Resonance Assistant + Experiment Control -->
+            <section class="panel col-right">
+                <div class="panel-header">RESONANCE ASSISTANT</div>
+                <div class="panel-content">
+                    <div class="right-scroll">
+                        <div class="control-group">
+                            <label>Known Base Resonant Frequency (Hz)</label>
+                            <input type="number" id="base-freq" value="182" step="0.1">
+                        </div>
+                        
+                        <div class="control-group">
+                            <label>Calculation Mode</label>
+                            <select id="calc-mode">
+                                <option value="harmonic">Mode A: Simple Harmonic (f × n)</option>
+                                <option value="odd">Mode B: Odd Harmonics (f × (2n-1))</option>
+                                <option value="plate">Mode C: Plate Approx (f × n²)</option>
+                                <option value="custom">Mode D: Custom Multiplier</option>
+                            </select>
+                        </div>
+
+                        <div class="control-group" id="custom-mult-group" style="display:none;">
+                            <label>Custom Multiplier</label>
+                            <input type="number" id="custom-mult" value="1.5" step="0.1">
+                        </div>
+
+                        <div class="control-row" style="gap: 6px; padding-bottom: 6px;">
+                            <button id="btn-calc" style="flex:1;">CALCULATE</button>
+                            <button id="btn-auto-assign" style="flex:1;">AUTO ASSIGN</button>
+                        </div>
+
+                        <div class="freq-list" id="freq-results">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Experiment Control -->
+                    <div class="experiment-section">
+                        <div class="experiment-header">
+                            <div class="status-led" id="engine-led"></div>
+                            EXPERIMENT CONTROL
+                        </div>
+
+                        <!-- Pill-style engine toggle -->
+                        <div class="engine-controls">
+                            <div class="engine-pill">
+                                <button class="pill-btn start-btn" id="btn-start">
+                                    <svg class="pill-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M8 5v14l11-7z"/></svg> START
+                                </button>
+                                <button class="pill-btn stop-btn" id="btn-stop">
+                                    <svg class="pill-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M6 6h12v12H6z"/></svg> STOP
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="engine-secondary">
+                            <button id="btn-mute-all">MUTE ALL</button>
+                            <button id="btn-estop" class="estop-btn">⚠ EMERGENCY STOP</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="bottom-bar">
+            <div class="footer-left">
+                <div class="status-item">
+                    <label>STATE:</label>
+                    <span class="status-value live" id="footer-sys-state">OFFLINE</span>
+                </div>
+                <div class="status-item">
+                    <label>SAMPLE RATE:</label>
+                    <span class="status-value" id="footer-sample-rate">---</span>
+                </div>
+            </div>
+            
+            <div class="footer-center">
+                PROPERTY OF HANIN (2027)
+            </div>
+
+            <div class="footer-right">
+                <div class="status-item">
+                    <label>OSCILLATORS:</label>
+                    <span class="val" id="footer-osc-count">0</span>
+                </div>
+                <div class="status-item">
+                    <label>SHORTCUTS:</label>
+                    <span class="val">[H] HELP</span>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <div id="help-modal">
+        <h2>KEYBOARD SHORTCUTS</h2>
+        <ul>
+            <li><span>Toggle Help</span> <kbd>H</kbd></li>
+            <li><span>Play/Hold Tone 1-6</span> <kbd>1</kbd> - <kbd>6</kbd></li>
+            <li><span>Variable Tone (Hold)</span> <kbd>0</kbd></li>
+            <li><span>Mute All</span> <kbd>Space</kbd></li>
+            <li><span>Enable Mic</span> <kbd>M</kbd></li>
+            <li><span>Record Mic Peaks</span> <kbd>V</kbd></li>
+            <li><span>Emergency Stop</span> <kbd>Esc</kbd></li>
+        </ul>
+    </div>
+
+    <script src="js/audioEngine.js?v=5"></script>
+    <script src="js/visualizer.js?v=5"></script>
+    <script src="js/resonanceCalculator.js?v=5"></script>
+    <script src="js/uiController.js?v=5"></script>
+    <script src="js/app.js?v=5"></script>
+</body>
+</html>
