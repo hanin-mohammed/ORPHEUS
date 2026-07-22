@@ -38,11 +38,19 @@
                         </div>
                     </div>
 
-                    <div class="control-group">
-                        <label>Input Device</label>
-                        <select id="mic-device">
-                            <option value="">Default (Click Enable First)</option>
-                        </select>
+                    <div class="control-row">
+                        <div class="control-group" style="flex: 1; min-width: 0;">
+                            <label>Input Device</label>
+                            <select id="mic-device" style="width: 100%; text-overflow: ellipsis;">
+                                <option value="">Default (Click Enable First)</option>
+                            </select>
+                        </div>
+                        <div class="control-group" style="flex: 1; min-width: 0;">
+                            <label>Output Device</label>
+                            <select id="out-device" style="width: 100%; text-overflow: ellipsis;">
+                                <option value="">Default</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="control-group">

@@ -88,6 +88,21 @@ class UIController {
             }
         });
 
+        const outDeviceSelect = document.getElementById('out-device');
+        if (outDeviceSelect) {
+            outDeviceSelect.addEventListener('change', async (e) => {
+                if (typeof this.engine.ctx.setSinkId === 'function') {
+                    try {
+                        await this.engine.ctx.setSinkId(e.target.value);
+                    } catch (err) {
+                        console.error('Error setting output device:', err);
+                    }
+                } else {
+                    console.warn('setSinkId not supported on this browser');
+                }
+            });
+        }
+
         document.getElementById('btn-mic-record').addEventListener('click', (e) => {
             this.visualizer.isRecordingPeaks = !this.visualizer.isRecordingPeaks;
             e.target.innerText = this.visualizer.isRecordingPeaks ? 'STOP' : 'RECORD';
@@ -362,8 +377,12 @@ class UIController {
     async populateMicDevices() {
         const select = document.getElementById('mic-device');
         const currentVal = select.value;
+        const outSelect = document.getElementById('out-device');
+        const outCurrentVal = outSelect ? outSelect.value : null;
+
         const devices = await navigator.mediaDevices.enumerateDevices();
         const audioInputs = devices.filter(d => d.kind === 'audioinput');
+        const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
         
         if (audioInputs.length > 0) {
             select.innerHTML = '';
@@ -384,6 +403,22 @@ class UIController {
                         select.value = activeSettings.deviceId;
                     }
                 }
+            }
+        }
+
+        if (outSelect && audioOutputs.length > 0) {
+            outSelect.innerHTML = '';
+            audioOutputs.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.deviceId;
+                option.text = device.label || `Speaker ${outSelect.length + 1}`;
+                outSelect.appendChild(option);
+            });
+            
+            if (outCurrentVal && Array.from(outSelect.options).some(opt => opt.value === outCurrentVal)) {
+                outSelect.value = outCurrentVal;
+            } else if (typeof this.engine.ctx.sinkId !== 'undefined' && this.engine.ctx.sinkId !== '') {
+                outSelect.value = this.engine.ctx.sinkId;
             }
         }
     }
