@@ -18,7 +18,7 @@
                 <div class="title" style="display: flex; align-items: center;">
                     O.R.P.H.E.U.S. 
                     <span style="color: var(--text-muted); font-size: 12px; margin: 0 10px;">&bull;</span> 
-                    <span style="font-size: 14px; letter-spacing: 2px;">MARK XIV</span>
+                    <span style="font-size: 14px; letter-spacing: 2px;">MARK XV</span>
                 </div>
                 <div class="subtitle">Oscillation Resonance Processing for Harmonic Evaluation and Unified Simulation</div>
             </div>
@@ -172,7 +172,10 @@
                 <div class="panel-content">
                     <div class="keys-grid">
                         <div class="key-slot" id="key-slot-1">
-                            <div class="key-header"><span>KEY [ 1 ]</span></div>
+                            <div class="key-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>KEY [ 1 ]</span>
+                                <button class="btn-play-toggle" data-key="1" style="font-size: 9px; padding: 2px 4px; cursor: pointer;">PLAY</button>
+                            </div>
                             <input type="number" id="freq-1" value="110" step="0.1">
                             <select id="wave-1">
                                 <option value="sine">SINE</option>
@@ -183,7 +186,10 @@
                             <input type="range" id="vol-1" min="0" max="1" step="0.01" value="0.5">
                         </div>
                         <div class="key-slot" id="key-slot-2">
-                            <div class="key-header"><span>KEY [ 2 ]</span></div>
+                            <div class="key-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>KEY [ 2 ]</span>
+                                <button class="btn-play-toggle" data-key="2" style="font-size: 9px; padding: 2px 4px; cursor: pointer;">PLAY</button>
+                            </div>
                             <input type="number" id="freq-2" value="220" step="0.1">
                             <select id="wave-2">
                                 <option value="sine">SINE</option>
@@ -194,7 +200,10 @@
                             <input type="range" id="vol-2" min="0" max="1" step="0.01" value="0.5">
                         </div>
                         <div class="key-slot" id="key-slot-3">
-                            <div class="key-header"><span>KEY [ 3 ]</span></div>
+                            <div class="key-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>KEY [ 3 ]</span>
+                                <button class="btn-play-toggle" data-key="3" style="font-size: 9px; padding: 2px 4px; cursor: pointer;">PLAY</button>
+                            </div>
                             <input type="number" id="freq-3" value="330" step="0.1">
                             <select id="wave-3">
                                 <option value="sine">SINE</option>
@@ -205,7 +214,10 @@
                             <input type="range" id="vol-3" min="0" max="1" step="0.01" value="0.5">
                         </div>
                         <div class="key-slot" id="key-slot-4">
-                            <div class="key-header"><span>KEY [ 4 ]</span></div>
+                            <div class="key-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>KEY [ 4 ]</span>
+                                <button class="btn-play-toggle" data-key="4" style="font-size: 9px; padding: 2px 4px; cursor: pointer;">PLAY</button>
+                            </div>
                             <input type="number" id="freq-4" value="440" step="0.1">
                             <select id="wave-4">
                                 <option value="sine">SINE</option>
@@ -216,7 +228,10 @@
                             <input type="range" id="vol-4" min="0" max="1" step="0.01" value="0.5">
                         </div>
                         <div class="key-slot" id="key-slot-5">
-                            <div class="key-header"><span>KEY [ 5 ]</span></div>
+                            <div class="key-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>KEY [ 5 ]</span>
+                                <button class="btn-play-toggle" data-key="5" style="font-size: 9px; padding: 2px 4px; cursor: pointer;">PLAY</button>
+                            </div>
                             <input type="number" id="freq-5" value="550" step="0.1">
                             <select id="wave-5">
                                 <option value="sine">SINE</option>
@@ -227,7 +242,10 @@
                             <input type="range" id="vol-5" min="0" max="1" step="0.01" value="0.5">
                         </div>
                         <div class="key-slot" id="key-slot-6">
-                            <div class="key-header"><span>KEY [ 6 ]</span></div>
+                            <div class="key-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <span>KEY [ 6 ]</span>
+                                <button class="btn-play-toggle" data-key="6" style="font-size: 9px; padding: 2px 4px; cursor: pointer;">PLAY</button>
+                            </div>
                             <input type="number" id="freq-6" value="660" step="0.1">
                             <select id="wave-6">
                                 <option value="sine">SINE</option>
@@ -242,7 +260,10 @@
                     <!-- KEY 0: Variable Frequency Slider Tone -->
                     <div class="key-slot-zero" id="key-slot-0">
                         <div class="key-zero-top">
-                            <div class="key-header"><span>KEY [ 0 ]  VARIABLE TONE</span></div>
+                            <div class="key-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                                <span>KEY [ 0 ]  VARIABLE TONE</span>
+                                <button class="btn-play-toggle" data-key="0" style="font-size: 9px; padding: 2px 4px; cursor: pointer;">PLAY</button>
+                            </div>
                             <div class="key-zero-controls">
                                 <select id="wave-0">
                                     <option value="sine">SINE</option>

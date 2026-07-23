@@ -422,6 +422,32 @@ class UIController {
             }
         });
 
+        // Play Toggle Buttons
+        document.querySelectorAll('.btn-play-toggle').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                if (!this.isRunning) return;
+                const key = btn.dataset.key;
+                if (this.keysDown.has(key)) {
+                    this.keysDown.delete(key);
+                    this.engine.stopTone(key);
+                } else {
+                    this.keysDown.add(key);
+                    if (key === '0') {
+                        const freq = parseFloat(this.elFreqSlider0.value);
+                        const type = this.elWave0.value;
+                        const vol = parseFloat(this.elVol0.value);
+                        this.engine.playTone('0', freq, type, vol);
+                    } else {
+                        const freq = parseFloat(document.getElementById(`freq-${key}`).value);
+                        const type = document.getElementById(`wave-${key}`).value;
+                        const vol = parseFloat(document.getElementById(`vol-${key}`).value);
+                        this.engine.playTone(key, freq, type, vol);
+                    }
+                }
+                this.updateKeyUI();
+            });
+        });
+
         // Theme Color Picker
         document.getElementById('theme-color').addEventListener('input', (e) => {
             const newColor = e.target.value;
@@ -614,16 +640,22 @@ class UIController {
     updateKeyUI() {
         for (let i = 1; i <= 6; i++) {
             const slot = document.getElementById(`key-slot-${i}`);
+            const btn = slot.querySelector('.btn-play-toggle');
             if (this.keysDown.has(i.toString())) {
                 slot.classList.add('active');
+                if (btn) btn.innerText = 'STOP';
             } else {
                 slot.classList.remove('active');
+                if (btn) btn.innerText = 'PLAY';
             }
         }
+        const btn0 = this.elKeySlot0.querySelector('.btn-play-toggle');
         if (this.keysDown.has('0')) {
             this.elKeySlot0.classList.add('active');
+            if (btn0) btn0.innerText = 'STOP';
         } else {
             this.elKeySlot0.classList.remove('active');
+            if (btn0) btn0.innerText = 'PLAY';
         }
         this.elFooterOscCount.innerText = this.engine.activeOscillators.size;
     }
