@@ -354,7 +354,7 @@ button.warning:hover {
   justify-content: flex-end;
 }
 
-.key-zero-controls select {
+.key-zero-top select {
   width: 85px;
   flex-shrink: 0;
   font-size: 12px;

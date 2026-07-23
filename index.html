@@ -260,17 +260,17 @@
                     <!-- KEY 0: Variable Frequency Slider Tone -->
                     <div class="key-slot-zero" id="key-slot-0">
                         <div class="key-zero-top">
-                            <div class="key-header" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                            <div class="key-header" style="display: flex; align-items: center; gap: 8px;">
                                 <span>KEY [ 0 ]  VARIABLE TONE</span>
-                                <button class="btn-play-toggle" data-key="0" style="font-size: 9px; padding: 2px 4px; cursor: pointer;">PLAY</button>
-                            </div>
-                            <div class="key-zero-controls">
                                 <select id="wave-0">
                                     <option value="sine">SINE</option>
                                     <option value="triangle">TRI</option>
                                     <option value="square">SQR</option>
                                     <option value="sawtooth">SAW</option>
                                 </select>
+                            </div>
+                            <div class="key-zero-controls">
+                                <button class="btn-play-toggle" data-key="0" style="font-size: 9px; padding: 2px 4px; cursor: pointer;">PLAY</button>
                                 <input type="range" id="vol-0" min="0" max="1" step="0.01" value="0.5" style="width: 80px;">
                             </div>
                         </div>
