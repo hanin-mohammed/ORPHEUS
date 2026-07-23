@@ -32,6 +32,19 @@ class UIController {
 
         this.bindEvents();
         this.startUpdateLoop();
+
+        // Populate output devices immediately (labels may be generic until mic permission is granted)
+        this.populateOutputDevices();
+
+        // Listen for device changes (e.g. plugging in headphones)
+        if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+            navigator.mediaDevices.addEventListener('devicechange', () => {
+                this.populateOutputDevices();
+                if (this.micActive) {
+                    this.populateMicDevices();
+                }
+            });
+        }
     }
 
     setEngineState(state) {
@@ -91,15 +104,7 @@ class UIController {
         const outDeviceSelect = document.getElementById('out-device');
         if (outDeviceSelect) {
             outDeviceSelect.addEventListener('change', async (e) => {
-                if (typeof this.engine.ctx.setSinkId === 'function') {
-                    try {
-                        await this.engine.ctx.setSinkId(e.target.value);
-                    } catch (err) {
-                        console.error('Error setting output device:', err);
-                    }
-                } else {
-                    console.warn('setSinkId not supported on this browser');
-                }
+                await this.engine.setOutputDevice(e.target.value);
             });
         }
 
@@ -108,9 +113,8 @@ class UIController {
             e.target.innerText = this.visualizer.isRecordingPeaks ? 'STOP' : 'RECORD';
             e.target.classList.toggle('active', this.visualizer.isRecordingPeaks);
 
-            if (!this.visualizer.isRecordingPeaks && this.visualizer.recordedFftData) {
-                const peaks = this.visualizer.getTopPeaks(this.visualizer.recordedFftData, 3);
-                this.displayTopPeaks(peaks);
+            if (!this.visualizer.isRecordingPeaks) {
+                this.updatePeaksDisplay();
             } else {
                 this.hideTopPeaks();
             }
@@ -118,11 +122,31 @@ class UIController {
 
         document.getElementById('btn-mic-clear').addEventListener('click', (e) => {
             this.visualizer.recordedFftData = null;
+            this.visualizer.selectionStartBin = null;
+            this.visualizer.selectionEndBin = null;
             this.hideTopPeaks();
+            const btnClear = document.getElementById('btn-clear-selection');
+            if (btnClear) {
+                btnClear.style.opacity = '0.3';
+                btnClear.style.pointerEvents = 'none';
+            }
         });
 
+        const btnClearSelection = document.getElementById('btn-clear-selection');
+        if (btnClearSelection) {
+            btnClearSelection.addEventListener('click', () => {
+                this.visualizer.selectionStartBin = null;
+                this.visualizer.selectionEndBin = null;
+                this.updatePeaksDisplay();
+            });
+        }
+
+        this.visualizer.onSelectionChange = () => {
+            this.updatePeaksDisplay();
+        };
+
         document.getElementById('btn-assign-peaks').addEventListener('click', () => {
-            if (this.visualizer.recordedFftData) {
+            if (this.visualizer.recordedFftData && this.engine.micAnalyser) {
                 const peaks = this.visualizer.getTopPeaks(this.visualizer.recordedFftData, 3);
                 if (!peaks || peaks.length === 0) return;
                 const sampleRate = this.engine.ctx.sampleRate;
@@ -140,7 +164,14 @@ class UIController {
         });
 
         document.getElementById('mic-gain').addEventListener('input', (e) => {
-            this.engine.setMicGain(parseFloat(e.target.value));
+            let val = parseFloat(e.target.value);
+            if (Math.abs(val - 1.0) < 0.1) {
+                val = 1.0;
+                e.target.value = val;
+            }
+            this.engine.setMicGain(val);
+            const valSpan = document.getElementById('mic-gain-val');
+            if (valSpan) valSpan.innerText = val.toFixed(2) + 'x';
         });
 
         document.getElementById('mic-fft-size').addEventListener('change', (e) => {
@@ -149,13 +180,32 @@ class UIController {
 
         // Threshold Controls
         document.getElementById('mic-thresh').addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value);
+            let val = parseFloat(e.target.value);
+            if (Math.abs(val - (-60)) < 4) {
+                val = -60;
+                e.target.value = val;
+            }
             this.engine.micThreshold = val;
             document.getElementById('mic-thresh-val').innerText = val + ' dB';
         });
 
         document.getElementById('mic-thresh-enable').addEventListener('change', (e) => {
             this.engine.micThresholdEnabled = e.target.checked;
+        });
+
+        // Change Threshold Controls
+        document.getElementById('mic-change-thresh').addEventListener('input', (e) => {
+            let val = parseFloat(e.target.value);
+            if (Math.abs(val - 15) < 3) {
+                val = 15;
+                e.target.value = val;
+            }
+            this.engine.changeThreshold = val;
+            document.getElementById('mic-change-val').innerText = '\u0394 ' + val + ' dB';
+        });
+
+        document.getElementById('mic-change-enable').addEventListener('change', (e) => {
+            this.engine.changeThresholdEnabled = e.target.checked;
         });
 
         // Master Controls with value display
@@ -195,9 +245,19 @@ class UIController {
         // KEY 0 - Variable frequency slider
         this.elFreqSlider0.addEventListener('input', () => {
             const freq = parseFloat(this.elFreqSlider0.value);
-            this.elFreqDisplay0.innerText = freq.toFixed(1) + ' Hz';
+            this.elFreqDisplay0.value = freq.toFixed(1);
             if (this.keysDown.has('0')) {
                 this.engine.updateTone('0', freq, this.elWave0.value, parseFloat(this.elVol0.value));
+            }
+        });
+
+        this.elFreqDisplay0.addEventListener('input', () => {
+            let freq = parseFloat(this.elFreqDisplay0.value);
+            if (!isNaN(freq)) {
+                this.elFreqSlider0.value = freq;
+                if (this.keysDown.has('0')) {
+                    this.engine.updateTone('0', freq, this.elWave0.value, parseFloat(this.elVol0.value));
+                }
             }
         });
 
@@ -377,12 +437,9 @@ class UIController {
     async populateMicDevices() {
         const select = document.getElementById('mic-device');
         const currentVal = select.value;
-        const outSelect = document.getElementById('out-device');
-        const outCurrentVal = outSelect ? outSelect.value : null;
 
         const devices = await navigator.mediaDevices.enumerateDevices();
         const audioInputs = devices.filter(d => d.kind === 'audioinput');
-        const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
         
         if (audioInputs.length > 0) {
             select.innerHTML = '';
@@ -406,7 +463,20 @@ class UIController {
             }
         }
 
-        if (outSelect && audioOutputs.length > 0) {
+        // Also refresh output devices (labels become available after mic permission)
+        await this.populateOutputDevices();
+    }
+
+    async populateOutputDevices() {
+        const outSelect = document.getElementById('out-device');
+        if (!outSelect) return;
+
+        const outCurrentVal = outSelect.value;
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+
+        if (audioOutputs.length > 0) {
             outSelect.innerHTML = '';
             audioOutputs.forEach(device => {
                 const option = document.createElement('option');
@@ -453,7 +523,7 @@ class UIController {
     }
 
     displayTopPeaks(peaks) {
-        if (peaks && peaks.length > 0) {
+        if (peaks && peaks.length > 0 && this.engine.micAnalyser) {
             const sampleRate = this.engine.ctx.sampleRate;
             const fftSize = this.engine.micAnalyser.fftSize;
             
@@ -502,6 +572,30 @@ class UIController {
         if (btnAssign) {
             btnAssign.style.opacity = '0.3';
             btnAssign.style.pointerEvents = 'none';
+        }
+    }
+
+    updatePeaksDisplay() {
+        // Only use recorded data for peak detection.
+        // Live mic data (lastMicFftData) changes every frame, so using it here
+        // would show a random snapshot that never updates — leading to erratic behavior.
+        const dataToUse = this.visualizer.recordedFftData;
+        if (dataToUse && this.engine.micAnalyser) {
+            const peaks = this.visualizer.getTopPeaks(dataToUse, 3);
+            this.displayTopPeaks(peaks);
+        } else {
+            this.hideTopPeaks();
+        }
+
+        const btnClear = document.getElementById('btn-clear-selection');
+        if (btnClear) {
+            if (this.visualizer.selectionStartBin !== null && this.visualizer.selectionEndBin !== null) {
+                btnClear.style.opacity = '1';
+                btnClear.style.pointerEvents = 'auto';
+            } else {
+                btnClear.style.opacity = '0.3';
+                btnClear.style.pointerEvents = 'none';
+            }
         }
     }
 

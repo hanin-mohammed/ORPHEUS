@@ -28,6 +28,12 @@ class AudioEngine {
         this.outAnalyser = this.ctx.createAnalyser();
         this.outAnalyser.fftSize = 2048;
 
+        // Output device routing via MediaStreamDestination + <audio> element
+        // This enables reliable output device switching via HTMLMediaElement.setSinkId()
+        this.mediaStreamDest = this.ctx.createMediaStreamDestination();
+        this.audioOutput = new Audio();
+        this.audioOutput.srcObject = this.mediaStreamDest.stream;
+
         // Connections
         this.masterGain.connect(this.dryGain);
         this.masterGain.connect(this.reverbConvolver);
@@ -38,6 +44,8 @@ class AudioEngine {
         this.reverbGain.connect(this.compressor);
         
         this.compressor.connect(this.outAnalyser);
+        this.outAnalyser.connect(this.mediaStreamDest);
+        // Also connect to ctx.destination so the analyser gets data even if audio element isn't playing yet
         this.outAnalyser.connect(this.ctx.destination);
 
         // Mic Routing
@@ -45,13 +53,17 @@ class AudioEngine {
         this.micGain.gain.value = 1.0;
         
         this.micAnalyser = this.ctx.createAnalyser();
-        this.micAnalyser.fftSize = 4096;
+        this.micAnalyser.fftSize = 2048;
         
         this.micStream = null;
         this.micSource = null;
 
-        this.micThreshold = -70;
-        this.micThresholdEnabled = true;
+        this.micThreshold = -60;
+        this.micThresholdEnabled = false;
+
+        this.changeThreshold = 15;
+        this.changeThresholdEnabled = false;
+        this.prevDataArray = null;
     }
 
     createImpulseResponse(duration, decay) {
@@ -136,9 +148,34 @@ class AudioEngine {
         this.dryGain.gain.value = 1.0 - (val * 0.5);
     }
 
+    async setOutputDevice(deviceId) {
+        // Use HTMLMediaElement.setSinkId() — widely supported for output device selection
+        if (typeof this.audioOutput.setSinkId === 'function') {
+            try {
+                await this.audioOutput.setSinkId(deviceId);
+                // When using a specific output device via the audio element,
+                // disconnect from ctx.destination to avoid double-output on the default device
+                try { this.outAnalyser.disconnect(this.ctx.destination); } catch(e) {}
+                // Ensure the audio element is actually playing
+                this.ensureAudioOutputPlaying();
+            } catch (err) {
+                console.error('Error setting output device:', err);
+            }
+        } else {
+            console.warn('setSinkId not supported on this browser');
+        }
+    }
+
+    ensureAudioOutputPlaying() {
+        if (this.audioOutput.paused) {
+            this.audioOutput.play().catch(() => {});
+        }
+    }
+
     playTone(id, freq, type, vol) {
         if (this.activeOscillators.has(id)) return; // already playing
         if (this.ctx.state === 'suspended') this.ctx.resume();
+        this.ensureAudioOutputPlaying();
 
         const osc = this.ctx.createOscillator();
         const gainNode = this.ctx.createGain();
@@ -188,14 +225,66 @@ class AudioEngine {
     }
 
     getMicData() {
+        const now = performance.now();
+        if (this.lastMicDataTime && now - this.lastMicDataTime < 10) {
+            return this.lastMicData;
+        }
+
         const bufferLength = this.micAnalyser.frequencyBinCount;
         const dataArray = new Float32Array(bufferLength);
         this.micAnalyser.getFloatFrequencyData(dataArray);
         
+        // Sanitize -Infinity values
+        for (let i = 0; i < bufferLength; i++) {
+            if (dataArray[i] === -Infinity) dataArray[i] = -140;
+        }
+
+        // Initialize baseline on first call or if FFT size changed
+        if (!this.baselineData || this.baselineData.length !== bufferLength) {
+            this.baselineData = new Float32Array(bufferLength);
+            for (let i = 0; i < bufferLength; i++) {
+                this.baselineData[i] = dataArray[i];
+            }
+        }
+
+        // Exponential moving average baseline with asymmetric time constants
+        // Fast downward tracking (noise floor dropped) — alpha = 0.5
+        // Slow upward tracking (new steady signal should be learned slowly) — alpha = 0.002
+        const ALPHA_DOWN = 0.5;
+        const ALPHA_UP = 0.002;
+
+        for (let i = 0; i < bufferLength; i++) {
+            const current = dataArray[i];
+            const baseline = this.baselineData[i];
+            
+            if (current < baseline) {
+                // Fast downward: quickly follow drops in noise floor
+                this.baselineData[i] = baseline + ALPHA_DOWN * (current - baseline);
+            } else {
+                // Slow upward: gradually adopt new steady-state levels
+                this.baselineData[i] = baseline + ALPHA_UP * (current - baseline);
+            }
+        }
+
+        // Build gated data for display (change threshold applied),
+        // but keep raw dataArray intact for peak detection
+        let displayArray = dataArray;
+        if (this.changeThresholdEnabled) {
+            displayArray = new Float32Array(bufferLength);
+            for (let i = 0; i < bufferLength; i++) {
+                const rise = dataArray[i] - this.baselineData[i];
+                if (rise >= this.changeThreshold) {
+                    displayArray[i] = dataArray[i];
+                } else {
+                    displayArray[i] = -200;
+                }
+            }
+        }
+
         const timeArray = new Float32Array(bufferLength);
         this.micAnalyser.getFloatTimeDomainData(timeArray);
 
-        // Calculate Peak
+        // Calculate Peak from RAW data (not gated) so readouts always work
         let maxVal = -Infinity;
         let maxIndex = 0;
         for (let i = 0; i < bufferLength; i++) {
@@ -219,7 +308,10 @@ class AudioEngine {
         }
         const rms = Math.sqrt(sumSquares / bufferLength);
 
-        return { dataArray, timeArray, peakFreq, maxVal, rms };
+        this.lastMicData = { dataArray: displayArray, rawDataArray: dataArray, timeArray, peakFreq, maxVal, rms };
+        this.lastMicDataTime = now;
+        
+        return this.lastMicData;
     }
 
     getOutData() {

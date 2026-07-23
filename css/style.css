@@ -225,6 +225,13 @@ input[type="number"], select {
   outline: none;
   border-radius: 0;
 }
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 input[type="number"]:focus, select:focus {
   border-color: var(--text-amber);
 }

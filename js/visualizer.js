@@ -19,6 +19,14 @@ class Visualizer {
         this.lastMicOscData = null;
         this.lastOutOscData = null;
 
+        // Selection variables
+        this.selectionStartBin = null;
+        this.selectionEndBin = null;
+        this.dragStartX = null;
+        this.dragCurrentX = null;
+        this.isDragging = false;
+        this.onSelectionChange = null;
+
         this.resize();
         window.addEventListener('resize', () => this.resize());
 
@@ -50,6 +58,49 @@ class Visualizer {
         }
     }
 
+    _commitDragSelection() {
+        this.isDragging = false;
+        
+        if (Math.abs(this.dragCurrentX - this.dragStartX) > 5) {
+            const dataToUse = this.recordedFftData || this.lastMicFftData;
+            if (!dataToUse) {
+                this.dragStartX = null;
+                this.dragCurrentX = null;
+                return;
+            }
+            
+            const width = this.micFftCanvas.width;
+            const xOffset = 32;
+            const drawWidth = width - xOffset;
+            const bufferLength = dataToUse.length;
+            const displayBins = Math.floor(bufferLength / 8);
+            
+            let startX = Math.min(this.dragStartX, this.dragCurrentX);
+            let endX = Math.max(this.dragStartX, this.dragCurrentX);
+            
+            startX = Math.max(xOffset, startX);
+            endX = Math.min(xOffset + drawWidth, endX);
+            
+            let sBin = Math.round(((startX - xOffset) / drawWidth) * displayBins);
+            let eBin = Math.round(((endX - xOffset) / drawWidth) * displayBins);
+            
+            sBin = Math.max(0, sBin);
+            eBin = Math.min(displayBins - 1, eBin);
+            
+            if (eBin > sBin) {
+                this.selectionStartBin = sBin;
+                this.selectionEndBin = eBin;
+                
+                if (this.onSelectionChange) {
+                    this.onSelectionChange();
+                }
+            }
+        }
+        
+        this.dragStartX = null;
+        this.dragCurrentX = null;
+    }
+
     hexToRgba(hex, alpha) {
         if (hex.startsWith('#')) {
             const r = parseInt(hex.slice(1, 3), 16);
@@ -62,17 +113,157 @@ class Visualizer {
 
     getTopPeaks(data, count) {
         if (!data) return [];
-        let peaks = [];
         const maxDisplayBin = Math.floor(data.length / 8);
-        for (let i = 2; i < maxDisplayBin - 2; i++) {
-            if (data[i] > data[i-1] && data[i] > data[i+1]) {
-                if (!this.engine.micThresholdEnabled || data[i] >= this.engine.micThreshold) {
-                    peaks.push({ index: i, value: data[i] });
+        let startBin = 0;
+        let endBin = maxDisplayBin - 1;
+
+        if (this.selectionStartBin !== null && this.selectionEndBin !== null) {
+            startBin = Math.max(0, this.selectionStartBin);
+            endBin = Math.min(maxDisplayBin - 1, this.selectionEndBin);
+        }
+
+        if (endBin <= startBin) return [];
+
+        // Minimum bin separation between distinct peaks.
+        // At 48kHz/2048 FFT ≈ 23Hz/bin, so 5 bins ≈ 117Hz minimum gap.
+        // This prevents spectral leakage from a strong peak from being
+        // picked as a separate 2nd/3rd rank peak.
+        const MIN_PEAK_SEP = 5;
+
+        // Step 1: Find all local maxima including edge cases.
+        // A bin qualifies as a peak if:
+        //   - It's at the selection boundary and >= its inward neighbor, OR
+        //   - It's strictly greater than both immediate neighbors
+        let candidates = [];
+        for (let i = startBin; i <= endBin; i++) {
+            const val = data[i];
+
+            // Threshold gate
+            if (this.engine.micThresholdEnabled && val < this.engine.micThreshold) continue;
+
+            const leftVal  = (i > 0) ? data[i - 1] : -Infinity;
+            const rightVal = (i < maxDisplayBin - 1) ? data[i + 1] : -Infinity;
+
+            let isPeak = false;
+
+            // Interior bin: strict local maximum
+            if (i > startBin && i < endBin) {
+                isPeak = (val > leftVal && val > rightVal);
+            }
+            // Left edge of selection: peak if >= right neighbor
+            else if (i === startBin && i < endBin) {
+                isPeak = (val >= rightVal);
+            }
+            // Right edge of selection: peak if >= left neighbor
+            else if (i === endBin && i > startBin) {
+                isPeak = (val >= leftVal);
+            }
+            // Single bin selection
+            else if (i === startBin && i === endBin) {
+                isPeak = true;
+            }
+
+            if (isPeak) {
+                candidates.push({ index: i, value: val });
+            }
+        }
+
+        // Step 2: Compute prominence for each candidate.
+        // Prominence = how much a peak stands above the higher of the two
+        // lowest valleys on either side before a taller peak is reached.
+        // This strongly favors true resonance peaks over spectral leakage humps.
+        for (const cand of candidates) {
+            // Walk left to find the minimum valley before hitting an equal-or-higher bin
+            let leftMin = cand.value;
+            for (let j = cand.index - 1; j >= startBin; j--) {
+                if (data[j] >= cand.value) break;
+                if (data[j] < leftMin) leftMin = data[j];
+            }
+
+            // Walk right to find the minimum valley before hitting an equal-or-higher bin
+            let rightMin = cand.value;
+            for (let j = cand.index + 1; j <= endBin; j++) {
+                if (data[j] >= cand.value) break;
+                if (data[j] < rightMin) rightMin = data[j];
+            }
+
+            // Prominence = drop from peak to the higher of the two valleys
+            const higherValley = Math.max(leftMin, rightMin);
+            cand.prominence = cand.value - higherValley;
+        }
+
+        // Step 3: Score candidates by combining magnitude and prominence.
+        // This ensures that a truly distinct peak (high prominence) is favored
+        // over a slightly-louder spectral leakage hump (near-zero prominence).
+        //
+        // score = magnitude + 0.5 * prominence
+        //   - For the dominant peak, prominence is naturally high → high score
+        //   - For a real 2nd peak in a different frequency region, prominence > 0 → boosted
+        //   - For spectral leakage near peak 1, prominence ≈ 0 → penalized relative to real peaks
+        for (const cand of candidates) {
+            cand.score = cand.value + 0.5 * cand.prominence;
+        }
+
+        // Sort by score descending
+        candidates.sort((a, b) => b.score - a.score);
+
+        // Step 4: Greedy selection with minimum separation enforcement.
+        // Pick the highest-scored candidate, then skip any within MIN_PEAK_SEP bins.
+        const selected = [];
+        for (const cand of candidates) {
+            if (selected.length >= count) break;
+
+            // Check minimum separation from all already-selected peaks
+            let tooClose = false;
+            for (const sel of selected) {
+                if (Math.abs(cand.index - sel.index) < MIN_PEAK_SEP) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            if (!tooClose) {
+                selected.push(cand);
+            }
+        }
+
+        // Step 5: If we still don't have enough (very narrow selection or flat signal),
+        // fill remaining slots with loudest bins that maintain separation.
+        if (selected.length < count) {
+            const usedBins = new Set();
+            for (const sel of selected) {
+                for (let d = -MIN_PEAK_SEP + 1; d < MIN_PEAK_SEP; d++) {
+                    usedBins.add(sel.index + d);
+                }
+            }
+
+            // Collect all eligible bins sorted by value
+            let fillBins = [];
+            for (let i = startBin; i <= endBin; i++) {
+                if (usedBins.has(i)) continue;
+                if (this.engine.micThresholdEnabled && data[i] < this.engine.micThreshold) continue;
+                fillBins.push({ index: i, value: data[i], prominence: 0, score: data[i] });
+            }
+            fillBins.sort((a, b) => b.value - a.value);
+
+            for (const fb of fillBins) {
+                if (selected.length >= count) break;
+
+                let tooClose = false;
+                for (const sel of selected) {
+                    if (Math.abs(fb.index - sel.index) < MIN_PEAK_SEP) {
+                        tooClose = true;
+                        break;
+                    }
+                }
+                if (!tooClose) {
+                    selected.push(fb);
                 }
             }
         }
-        peaks.sort((a, b) => b.value - a.value);
-        return peaks.slice(0, count);
+
+        // Final sort by magnitude so rank 1 is always the loudest
+        selected.sort((a, b) => b.value - a.value);
+        return selected;
     }
 
     drawGrid(ctx, width, height) {
@@ -220,8 +411,6 @@ class Visualizer {
 
             if (!this.isRecordingPeaks) {
                 const peaks = this.getTopPeaks(this.recordedFftData, 3);
-                const sampleRate = this.engine.ctx.sampleRate;
-                const fftSize = this.engine.micAnalyser.fftSize;
                 
                 peaks.forEach((peak, i) => {
                     const x = xOffset + (peak.index * sliceWidth);
@@ -234,6 +423,22 @@ class Visualizer {
                     ctx.fill();
                 });
             }
+        }
+
+        if (this.dragStartX !== null && this.dragCurrentX !== null) {
+            const x1 = Math.min(this.dragStartX, this.dragCurrentX);
+            const x2 = Math.max(this.dragStartX, this.dragCurrentX);
+            const startX = Math.max(xOffset, x1);
+            const endX = Math.min(xOffset + drawWidth, x2);
+            if (endX > startX) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+                ctx.fillRect(startX, 0, endX - startX, height);
+            }
+        } else if (this.selectionStartBin !== null && this.selectionEndBin !== null) {
+            const startX = xOffset + (this.selectionStartBin / displayBins) * drawWidth;
+            const endX = xOffset + (this.selectionEndBin / displayBins) * drawWidth;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+            ctx.fillRect(startX, 0, endX - startX, height);
         }
 
         this.drawFftAxes(ctx, width, height, bufferLength);
@@ -274,11 +479,13 @@ class Visualizer {
             this.lastMicOscData = micData.timeArray ? new Float32Array(micData.timeArray) : null;
 
             if (this.isRecordingPeaks && micData.dataArray) {
-                if (!this.recordedFftData || this.recordedFftData.length !== micData.dataArray.length) {
-                    this.recordedFftData = new Float32Array(micData.dataArray);
+                // Use raw (un-gated) data for recording so change threshold doesn't discard peaks
+                const recordSource = micData.rawDataArray || micData.dataArray;
+                if (!this.recordedFftData || this.recordedFftData.length !== recordSource.length) {
+                    this.recordedFftData = new Float32Array(recordSource);
                 } else {
-                    for (let i = 0; i < micData.dataArray.length; i++) {
-                        this.recordedFftData[i] = Math.max(this.recordedFftData[i], micData.dataArray[i]);
+                    for (let i = 0; i < recordSource.length; i++) {
+                        this.recordedFftData[i] = Math.max(this.recordedFftData[i], recordSource[i]);
                     }
                 }
             }
@@ -305,14 +512,33 @@ class Visualizer {
         const tooltipFft = document.getElementById('tooltip-fft');
         const tooltipOsc = document.getElementById('tooltip-osc');
 
+        this.micFftCanvas.addEventListener('mousedown', (e) => {
+            const rect = this.micFftCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const xOffset = 32;
+            const drawWidth = this.micFftCanvas.width - xOffset;
+            
+            if (mouseX < xOffset || mouseX > xOffset + drawWidth) return;
+            
+            this.isDragging = true;
+            this.dragStartX = mouseX;
+            this.dragCurrentX = mouseX;
+        });
+
         this.micFftCanvas.addEventListener('mousemove', (e) => {
+            const rect = this.micFftCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            
+            if (this.isDragging) {
+                this.dragCurrentX = mouseX;
+            }
+
             const dataToUse = this.lastMicFftData || this.recordedFftData;
             if (!dataToUse) {
                 tooltipFft.style.display = 'none';
                 return;
             }
-            const rect = this.micFftCanvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
+
             const width = this.micFftCanvas.width;
             const height = this.micFftCanvas.height;
 
@@ -348,8 +574,19 @@ class Visualizer {
             tooltipFft.style.display = 'block';
         });
 
-        this.micFftCanvas.addEventListener('mouseleave', () => {
+        this.micFftCanvas.addEventListener('mouseup', (e) => {
+            if (this.isDragging) {
+                this._commitDragSelection();
+            }
+        });
+
+        this.micFftCanvas.addEventListener('mouseleave', (e) => {
             tooltipFft.style.display = 'none';
+            if (this.isDragging) {
+                // If mouse leaves canvas while dragging, commit the selection
+                // at the current drag position instead of discarding it
+                this._commitDragSelection();
+            }
         });
 
         this.micOscCanvas.addEventListener('mousemove', (e) => {
