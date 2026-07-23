@@ -139,6 +139,13 @@ class AudioEngine {
         this.micAnalyser.fftSize = parseInt(val);
     }
 
+    resetBaseline() {
+        // Force baseline to re-snapshot the current spectrum on next getMicData() call
+        this.baselineData = null;
+        // Invalidate cached mic data so next call computes fresh
+        this.lastMicDataTime = 0;
+    }
+
     setMasterVolume(val) {
         this.masterGain.gain.value = val;
     }

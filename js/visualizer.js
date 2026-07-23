@@ -479,8 +479,8 @@ class Visualizer {
             this.lastMicOscData = micData.timeArray ? new Float32Array(micData.timeArray) : null;
 
             if (this.isRecordingPeaks && micData.dataArray) {
-                // Use raw (un-gated) data for recording so change threshold doesn't discard peaks
-                const recordSource = micData.rawDataArray || micData.dataArray;
+                // Use display data (respects delta threshold gating when enabled)
+                const recordSource = micData.dataArray;
                 if (!this.recordedFftData || this.recordedFftData.length !== recordSource.length) {
                     this.recordedFftData = new Float32Array(recordSource);
                 } else {

@@ -91,6 +91,10 @@ class UIController {
                     btn.classList.add('active');
                     this.elFooterSampleRate.innerText = this.engine.ctx.sampleRate + " Hz";
                     await this.populateMicDevices();
+                    // Reset baseline so delta threshold works immediately with real audio,
+                    // not stale silence frames from before the mic was active
+                    this.engine.resetBaseline();
+                    setTimeout(() => this.engine.resetBaseline(), 300);
                 }
             }
         });
@@ -202,10 +206,18 @@ class UIController {
             }
             this.engine.changeThreshold = val;
             document.getElementById('mic-change-val').innerText = '\u0394 ' + val + ' dB';
+            // Reset baseline so the new threshold value takes effect immediately
+            if (this.engine.changeThresholdEnabled) {
+                this.engine.resetBaseline();
+            }
         });
 
         document.getElementById('mic-change-enable').addEventListener('change', (e) => {
             this.engine.changeThresholdEnabled = e.target.checked;
+            // Snapshot current spectrum as new baseline so gating is immediate
+            if (e.target.checked) {
+                this.engine.resetBaseline();
+            }
         });
 
         // Master Controls with value display
