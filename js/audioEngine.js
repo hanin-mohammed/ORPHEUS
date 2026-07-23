@@ -43,7 +43,11 @@ class AudioEngine {
         this.dryGain.connect(this.compressor);
         this.reverbGain.connect(this.compressor);
         
-        this.compressor.connect(this.outAnalyser);
+        this.masterMuteGain = this.ctx.createGain();
+        this.masterMuteGain.gain.value = 1.0;
+        
+        this.compressor.connect(this.masterMuteGain);
+        this.masterMuteGain.connect(this.outAnalyser);
         this.outAnalyser.connect(this.mediaStreamDest);
         // Also connect to ctx.destination so the analyser gets data even if audio element isn't playing yet
         this.outAnalyser.connect(this.ctx.destination);
@@ -165,6 +169,9 @@ class AudioEngine {
                 try { this.outAnalyser.disconnect(this.ctx.destination); } catch(e) {}
                 // Ensure the audio element is actually playing
                 this.ensureAudioOutputPlaying();
+                
+                // Also trigger device change recovery to fix potential sample rate mismatches
+                await this.handleDeviceChange();
             } catch (err) {
                 console.error('Error setting output device:', err);
             }
@@ -229,6 +236,18 @@ class AudioEngine {
         for (let id of this.activeOscillators.keys()) {
             this.stopTone(id);
         }
+    }
+
+    muteOutputInstantly() {
+        this.masterMuteGain.gain.cancelScheduledValues(this.ctx.currentTime);
+        this.masterMuteGain.gain.setValueAtTime(this.masterMuteGain.gain.value, this.ctx.currentTime);
+        this.masterMuteGain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.01);
+    }
+
+    unmuteOutput() {
+        this.masterMuteGain.gain.cancelScheduledValues(this.ctx.currentTime);
+        this.masterMuteGain.gain.setValueAtTime(this.masterMuteGain.gain.value, this.ctx.currentTime);
+        this.masterMuteGain.gain.linearRampToValueAtTime(1, this.ctx.currentTime + 0.05);
     }
 
     getMicData() {
@@ -338,5 +357,21 @@ class AudioEngine {
         const octave = Math.floor(h / 12);
         const n = h % 12;
         return `${notes[n]}${octave}`;
+    }
+
+    async handleDeviceChange() {
+        if (this.ctx && this.ctx.state !== 'closed') {
+            try {
+                // Suspend and resume the AudioContext to force core audio to realign.
+                // This resolves sample rate mismatch crackling and volume drops 
+                // when switching between devices like AirPods and Mac Speakers.
+                await this.ctx.suspend();
+                if (this.ctx.state === 'suspended') {
+                    await this.ctx.resume();
+                }
+            } catch (err) {
+                console.error('Error recovering AudioContext after device change:', err);
+            }
+        }
     }
 }

@@ -43,6 +43,9 @@ class UIController {
                 if (this.micActive) {
                     this.populateMicDevices();
                 }
+                if (this.engine && typeof this.engine.handleDeviceChange === 'function') {
+                    this.engine.handleDeviceChange();
+                }
             });
         }
     }
@@ -339,6 +342,7 @@ class UIController {
         // Experiment Controls
         document.getElementById('btn-start').addEventListener('click', () => {
             if (this.engine.ctx.state === 'suspended') this.engine.ctx.resume();
+            this.engine.unmuteOutput();
             this.isRunning = true;
             this.setEngineState('running');
         });
@@ -357,7 +361,15 @@ class UIController {
         document.getElementById('btn-estop').addEventListener('click', () => {
             this.isRunning = false;
             this.engine.stopAllTones();
-            this.engine.ctx.suspend();
+            this.engine.muteOutputInstantly();
+            
+            // Delay suspend to allow fade out and prevent audio buffer spasm
+            setTimeout(() => {
+                if (!this.isRunning) {
+                    this.engine.ctx.suspend();
+                }
+            }, 150);
+
             this.keysDown.clear();
             this.updateKeyUI();
             this.setEngineState('estop');
