@@ -128,7 +128,14 @@ class UIController {
         });
 
         document.getElementById('btn-mic-clear').addEventListener('click', (e) => {
+            this.visualizer.isRecordingPeaks = false;
             this.visualizer.recordedFftData = null;
+            this.visualizer.recordedRawFftData = null;
+            const btnRecord = document.getElementById('btn-mic-record');
+            if (btnRecord) {
+                btnRecord.innerText = 'RECORD';
+                btnRecord.classList.remove('active');
+            }
             this.visualizer.selectionStartBin = null;
             this.visualizer.selectionEndBin = null;
             this.hideTopPeaks();
@@ -154,7 +161,7 @@ class UIController {
 
         document.getElementById('btn-assign-peaks').addEventListener('click', () => {
             if (this.visualizer.recordedFftData && this.engine.micAnalyser) {
-                const peaks = this.visualizer.getTopPeaks(this.visualizer.recordedFftData, 3);
+                const peaks = this.visualizer.getTopPeaks(this.visualizer.recordedFftData, 3, this.visualizer.recordedRawFftData);
                 if (!peaks || peaks.length === 0) return;
                 const sampleRate = this.engine.ctx.sampleRate;
                 const fftSize = this.engine.micAnalyser.fftSize;
@@ -631,7 +638,7 @@ class UIController {
         // would show a random snapshot that never updates — leading to erratic behavior.
         const dataToUse = this.visualizer.recordedFftData;
         if (dataToUse && this.engine.micAnalyser) {
-            const peaks = this.visualizer.getTopPeaks(dataToUse, 3);
+            const peaks = this.visualizer.getTopPeaks(dataToUse, 3, this.visualizer.recordedRawFftData);
             this.displayTopPeaks(peaks);
         } else {
             this.hideTopPeaks();

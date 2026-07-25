@@ -3,6 +3,7 @@ class Visualizer {
         this.engine = audioEngine;
         this.isRecordingPeaks = false;
         this.recordedFftData = null;
+        this.recordedRawFftData = null;
         
         // Canvases
         this.micFftCanvas = document.getElementById('canvas-mic-fft');
@@ -35,7 +36,7 @@ class Visualizer {
 
         // Styling constants
         this.colorGrid = 'rgba(255, 255, 255, 0.1)';
-        this.colorAmber = '#ffb000';
+        this.colorAmber = '#c8a2c8';
         this.colorOrange = '#ff8a00';
         this.colorAxisText = 'rgba(255, 255, 255, 0.5)';
 
@@ -111,7 +112,7 @@ class Visualizer {
         return hex; // fallback
     }
 
-    getTopPeaks(data, count) {
+    getTopPeaks(data, count, rawData = null) {
         if (!data) return [];
         const maxDisplayBin = Math.floor(data.length / 8);
         let startBin = 0;
@@ -173,23 +174,27 @@ class Visualizer {
         // lowest valleys on either side before a taller peak is reached.
         // This strongly favors true resonance peaks over spectral leakage humps.
         for (const cand of candidates) {
+            // Use rawData if available, otherwise fallback to data (to avoid gated cliffs)
+            const walkData = rawData || data;
+
             // Walk left to find the minimum valley before hitting an equal-or-higher bin
-            let leftMin = cand.value;
+            let leftMin = walkData[cand.index];
             for (let j = cand.index - 1; j >= startBin; j--) {
-                if (data[j] >= cand.value) break;
-                if (data[j] < leftMin) leftMin = data[j];
+                if (walkData[j] >= walkData[cand.index]) break;
+                if (walkData[j] < leftMin) leftMin = walkData[j];
             }
 
             // Walk right to find the minimum valley before hitting an equal-or-higher bin
-            let rightMin = cand.value;
+            let rightMin = walkData[cand.index];
             for (let j = cand.index + 1; j <= endBin; j++) {
-                if (data[j] >= cand.value) break;
-                if (data[j] < rightMin) rightMin = data[j];
+                if (walkData[j] >= walkData[cand.index]) break;
+                if (walkData[j] < rightMin) rightMin = walkData[j];
             }
 
             // Prominence = drop from peak to the higher of the two valleys
             const higherValley = Math.max(leftMin, rightMin);
-            cand.prominence = cand.value - higherValley;
+            // Prominence is strictly positive
+            cand.prominence = Math.max(0, walkData[cand.index] - higherValley);
         }
 
         // Step 3: Score candidates by combining magnitude and prominence.
@@ -410,7 +415,7 @@ class Visualizer {
             ctx.stroke();
 
             if (!this.isRecordingPeaks) {
-                const peaks = this.getTopPeaks(this.recordedFftData, 3);
+                const peaks = this.getTopPeaks(this.recordedFftData, 3, this.recordedRawFftData);
                 
                 peaks.forEach((peak, i) => {
                     const x = xOffset + (peak.index * sliceWidth);
@@ -481,11 +486,16 @@ class Visualizer {
             if (this.isRecordingPeaks && micData.dataArray) {
                 // Use display data (respects delta threshold gating when enabled)
                 const recordSource = micData.dataArray;
+                const rawSource = micData.rawDataArray;
                 if (!this.recordedFftData || this.recordedFftData.length !== recordSource.length) {
                     this.recordedFftData = new Float32Array(recordSource);
+                    this.recordedRawFftData = rawSource ? new Float32Array(rawSource) : null;
                 } else {
                     for (let i = 0; i < recordSource.length; i++) {
                         this.recordedFftData[i] = Math.max(this.recordedFftData[i], recordSource[i]);
+                        if (this.recordedRawFftData && rawSource) {
+                            this.recordedRawFftData[i] = Math.max(this.recordedRawFftData[i], rawSource[i]);
+                        }
                     }
                 }
             }
