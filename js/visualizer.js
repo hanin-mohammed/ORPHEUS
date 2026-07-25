@@ -17,6 +17,7 @@ class Visualizer {
 
         // Store last drawn data for hover queries
         this.lastMicFftData = null;
+        this.lastRawMicFftData = null;
         this.lastMicOscData = null;
         this.lastOutOscData = null;
 
@@ -36,7 +37,7 @@ class Visualizer {
 
         // Styling constants
         this.colorGrid = 'rgba(255, 255, 255, 0.1)';
-        this.colorAmber = '#c8a2c8';
+        this.colorAmber = '#ffb000';
         this.colorOrange = '#ff8a00';
         this.colorAxisText = 'rgba(255, 255, 255, 0.5)';
 
@@ -391,6 +392,8 @@ class Visualizer {
 
             ctx.strokeStyle = this.colorAmber;
             ctx.lineWidth = 2;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
             ctx.stroke();
         }
 
@@ -412,6 +415,8 @@ class Visualizer {
             }
             ctx.strokeStyle = '#ff0000';
             ctx.lineWidth = 2;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
             ctx.stroke();
 
             if (!this.isRecordingPeaks) {
@@ -422,7 +427,21 @@ class Visualizer {
                     const normalized = Math.max(0, (peak.value + 100) / 100);
                     const y = (height - 16) - (normalized * drawHeight);
                     
-                    ctx.fillStyle = this.peakColors[i % this.peakColors.length];
+                    const color = this.peakColors[i % this.peakColors.length];
+
+                    // Dotted line parallel to x-axis
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(xOffset, y);
+                    ctx.lineTo(xOffset + drawWidth, y);
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 4]);
+                    ctx.stroke();
+                    ctx.restore();
+
+                    // Peak dot
+                    ctx.fillStyle = color;
                     ctx.beginPath();
                     ctx.arc(x, y, 4, 0, Math.PI * 2);
                     ctx.fill();
@@ -474,6 +493,8 @@ class Visualizer {
 
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
         ctx.stroke();
     }
 
@@ -481,6 +502,7 @@ class Visualizer {
         if (this.engine.micSource) {
             const micData = this.engine.getMicData();
             this.lastMicFftData = micData.dataArray ? new Float32Array(micData.dataArray) : null;
+            this.lastRawMicFftData = micData.rawDataArray ? new Float32Array(micData.rawDataArray) : null;
             this.lastMicOscData = micData.timeArray ? new Float32Array(micData.timeArray) : null;
 
             if (this.isRecordingPeaks && micData.dataArray) {
@@ -504,6 +526,7 @@ class Visualizer {
             this.drawOscilloscope(this.micOscCtx, this.micOscCanvas.width, this.micOscCanvas.height, micData.timeArray, this.colorOrange);
         } else {
             this.lastMicFftData = null;
+            this.lastRawMicFftData = null;
             this.lastMicOscData = null;
             this.drawFft(this.micFftCtx, this.micFftCanvas.width, this.micFftCanvas.height, null);
             this.drawOscilloscope(this.micOscCtx, this.micOscCanvas.width, this.micOscCanvas.height, null, this.colorOrange);
@@ -544,6 +567,7 @@ class Visualizer {
             }
 
             const dataToUse = this.lastMicFftData || this.recordedFftData;
+            const rawDataToUse = this.lastRawMicFftData || this.recordedRawFftData || dataToUse;
             if (!dataToUse) {
                 tooltipFft.style.display = 'none';
                 return;
@@ -570,7 +594,7 @@ class Visualizer {
             }
 
             const freq = bin * (sampleRate / fftSize);
-            const dB = dataToUse[bin];
+            const dB = rawDataToUse ? rawDataToUse[bin] : dataToUse[bin];
 
             tooltipFft.textContent = `${freq.toFixed(1)} Hz  |  ${dB.toFixed(1)} dB`;
             

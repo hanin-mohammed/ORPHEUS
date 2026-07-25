@@ -128,14 +128,8 @@ class UIController {
         });
 
         document.getElementById('btn-mic-clear').addEventListener('click', (e) => {
-            this.visualizer.isRecordingPeaks = false;
             this.visualizer.recordedFftData = null;
             this.visualizer.recordedRawFftData = null;
-            const btnRecord = document.getElementById('btn-mic-record');
-            if (btnRecord) {
-                btnRecord.innerText = 'RECORD';
-                btnRecord.classList.remove('active');
-            }
             this.visualizer.selectionStartBin = null;
             this.visualizer.selectionEndBin = null;
             this.hideTopPeaks();
